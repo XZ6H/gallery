@@ -18,6 +18,7 @@ package com.google.ai.edge.gallery.data.history
 
 import androidx.room.Dao
 import androidx.room.Delete
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -25,6 +26,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.Relation
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import kotlinx.coroutines.flow.Flow
