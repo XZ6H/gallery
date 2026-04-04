@@ -46,6 +46,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -67,6 +68,7 @@ import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.ui.history.ConversationHistoryViewModel
 import com.google.ai.edge.gallery.ui.common.ModelPageAppBar
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -109,6 +111,9 @@ fun ChatView(
   curSystemPrompt: String = "",
   onSystemPromptChanged: (String) -> Unit = {},
   sendMessageTrigger: SendMessageTrigger? = null,
+  conversationIdToLoad: String? = null,
+  historyViewModel: ConversationHistoryViewModel? = null,
+  onNavigateToHistory: (() -> Unit)? = null,
 ) {
   val uiState by viewModel.uiState.collectAsState()
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -148,6 +153,47 @@ fun ChatView(
 
   LaunchedEffect(sendMessageTrigger) {
     sendMessageTrigger?.let { trigger -> onSendMessage(trigger.model, trigger.messages) }
+  }
+
+  // Load conversation from history when conversationIdToLoad is provided.
+  LaunchedEffect(conversationIdToLoad, historyViewModel) {
+    if (conversationIdToLoad != null && historyViewModel != null) {
+      val conversationWithMessages = historyViewModel.loadConversation(conversationIdToLoad)
+      if (conversationWithMessages != null) {
+        viewModel.loadMessagesFromHistory(selectedModel, conversationWithMessages)
+      }
+    }
+  }
+
+  // Save conversation when navigating away.
+  DisposableEffect(Unit) {
+    onDispose {
+      viewModel.saveCurrentConversation(
+        model = selectedModel,
+        taskId = task.id,
+        saveCallback = { id, taskIdArg, modelNameArg, title, messages ->
+          if (historyViewModel != null) {
+            scope.launch(Dispatchers.Default) {
+              val conversation = com.google.ai.edge.gallery.data.history.ConversationEntity(
+                id = id,
+                taskId = taskIdArg,
+                modelName = modelNameArg,
+                title = title,
+                lastMessageTimestamp = System.currentTimeMillis(),
+                createdAt = System.currentTimeMillis(),
+              )
+              historyViewModel.saveConversation(conversation)
+              val messageEntities = messages.mapIndexed { index, msg ->
+                ChatHistoryConverter.fromMessage(msg, conversationId = id, order = index)
+              }.filterNotNull()
+              if (messageEntities.isNotEmpty()) {
+                historyViewModel.saveMessages(messageEntities)
+              }
+            }
+          }
+        },
+      )
+    }
   }
 
   // Handle system's edge swipe.
@@ -199,6 +245,7 @@ fun ChatView(
         allowEditingSystemPrompt = allowEditingSystemPrompt,
         curSystemPrompt = curSystemPrompt,
         onSystemPromptChanged = onSystemPromptChanged,
+        onHistoryClicked = onNavigateToHistory,
       )
     },
   ) { innerPadding ->

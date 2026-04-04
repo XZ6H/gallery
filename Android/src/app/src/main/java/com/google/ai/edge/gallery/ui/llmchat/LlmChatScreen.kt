@@ -46,6 +46,7 @@ import com.google.ai.edge.gallery.ui.common.chat.ChatMessageImage
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
 import com.google.ai.edge.gallery.ui.common.chat.ChatView
 import com.google.ai.edge.gallery.ui.common.chat.SendMessageTrigger
+import com.google.ai.edge.gallery.ui.history.ConversationHistoryViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.emptyStateContent
 import com.google.ai.edge.gallery.ui.theme.emptyStateTitle
@@ -71,6 +72,9 @@ fun LlmChatScreen(
   sendMessageTrigger: SendMessageTrigger? = null,
   showImagePicker: Boolean = false,
   showAudioPicker: Boolean = false,
+  conversationIdToLoad: String? = null,
+  historyViewModel: ConversationHistoryViewModel? = null,
+  onNavigateToHistory: (() -> Unit)? = null,
 ) {
   ChatViewWrapper(
     viewModel = viewModel,
@@ -90,6 +94,9 @@ fun LlmChatScreen(
     sendMessageTrigger = sendMessageTrigger,
     showImagePicker = showImagePicker,
     showAudioPicker = showAudioPicker,
+    conversationIdToLoad = conversationIdToLoad,
+    historyViewModel = historyViewModel,
+    onNavigateToHistory = onNavigateToHistory,
   )
 }
 
@@ -99,6 +106,9 @@ fun LlmAskImageScreen(
   navigateUp: () -> Unit,
   modifier: Modifier = Modifier,
   viewModel: LlmAskImageViewModel = hiltViewModel(),
+  conversationIdToLoad: String? = null,
+  historyViewModel: ConversationHistoryViewModel? = null,
+  onNavigateToHistory: (() -> Unit)? = null,
 ) {
   ChatViewWrapper(
     viewModel = viewModel,
@@ -108,6 +118,9 @@ fun LlmAskImageScreen(
     modifier = modifier,
     showImagePicker = true,
     showAudioPicker = false,
+    conversationIdToLoad = conversationIdToLoad,
+    historyViewModel = historyViewModel,
+    onNavigateToHistory = onNavigateToHistory,
     emptyStateComposable = { model ->
       Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -136,6 +149,9 @@ fun LlmAskAudioScreen(
   navigateUp: () -> Unit,
   modifier: Modifier = Modifier,
   viewModel: LlmAskAudioViewModel = hiltViewModel(),
+  conversationIdToLoad: String? = null,
+  historyViewModel: ConversationHistoryViewModel? = null,
+  onNavigateToHistory: (() -> Unit)? = null,
 ) {
   ChatViewWrapper(
     viewModel = viewModel,
@@ -145,6 +161,9 @@ fun LlmAskAudioScreen(
     modifier = modifier,
     showImagePicker = false,
     showAudioPicker = true,
+    conversationIdToLoad = conversationIdToLoad,
+    historyViewModel = historyViewModel,
+    onNavigateToHistory = onNavigateToHistory,
     emptyStateComposable = {
       Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -185,6 +204,9 @@ fun ChatViewWrapper(
   sendMessageTrigger: SendMessageTrigger? = null,
   showImagePicker: Boolean = false,
   showAudioPicker: Boolean = false,
+  conversationIdToLoad: String? = null,
+  historyViewModel: ConversationHistoryViewModel? = null,
+  onNavigateToHistory: (() -> Unit)? = null,
 ) {
   val context = LocalContext.current
   val task = modelManagerViewModel.getTaskById(id = taskId)!!
@@ -286,5 +308,8 @@ fun ChatViewWrapper(
     onSystemPromptChanged = onSystemPromptChanged,
     sendMessageTrigger = sendMessageTrigger,
     showAudioPicker = showAudioPicker,
+    conversationIdToLoad = conversationIdToLoad,
+    historyViewModel = historyViewModel,
+    onNavigateToHistory = onNavigateToHistory,
   )
 }

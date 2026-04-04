@@ -22,6 +22,9 @@ import androidx.lifecycle.ViewModel
 import com.google.ai.edge.gallery.common.processLlmResponse
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.history.ConversationEntity
+import com.google.ai.edge.gallery.data.history.ConversationWithMessages
+import com.google.ai.edge.gallery.data.history.MessageEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -45,12 +48,82 @@ data class ChatUiState(
 
   /** A map of model names to the currently streaming chat message. */
   val streamingMessagesByModel: Map<String, ChatMessage> = mapOf(),
+
+  /** ID of the conversation loaded from history (null for a new chat). */
+  val loadedConversationId: String? = null,
 )
 
 /** ViewModel responsible for managing the chat UI state and handling chat-related operations. */
 abstract class ChatViewModel() : ViewModel() {
   private val _uiState = MutableStateFlow(createUiState())
   val uiState = _uiState.asStateFlow()
+
+  /** Current conversation ID from loaded history (null for new chats). */
+  private var currentConversationId: String? = null
+
+  /** Callback for saving the current conversation — injected by the screen. */
+  var onSaveConversation: ((String, String, List<ChatMessage>) -> Unit)? = null
+
+  /** Load messages from a previous conversation into the current model. */
+  fun loadMessagesFromHistory(
+    model: Model,
+    conversationWithMessages: ConversationWithMessages,
+  ) {
+    currentConversationId = conversationWithMessages.conversation.id
+    val loadedMessages = mutableListOf<ChatMessage>()
+    for (messageEntity in conversationWithMessages.messages) {
+      val chatMessage = ChatHistoryConverter.toMessage(messageEntity)
+      if (chatMessage != null) {
+        loadedMessages.add(chatMessage)
+      }
+    }
+    if (loadedMessages.isNotEmpty()) {
+      val newMessagesByModel = _uiState.value.messagesByModel.toMutableMap()
+      newMessagesByModel[model.name] = loadedMessages.toMutableList()
+      _uiState.update {
+        it.copy(messagesByModel = newMessagesByModel, loadedConversationId = currentConversationId)
+      }
+      Log.d(TAG, "Loaded ${loadedMessages.size} messages from history")
+    }
+  }
+
+  /**
+   * Save the current conversation to persistent storage.
+   * Called by the screen on navigate up (save conversation before leaving).
+   */
+  fun saveCurrentConversation(
+    model: Model,
+    taskId: String,
+    saveCallback: (String, String, String, String, List<ChatMessage>) -> Unit,
+  ) {
+    val existingId = currentConversationId ?: return // New chat with no activity — nothing to save.
+    val messages = _uiState.value.messagesByModel[model.name]
+    if (messages.isNullOrEmpty()) return
+
+    // Only save if there's at least one user message.
+    val hasUserMessage = messages.any { it.side == ChatSide.USER }
+    if (!hasUserMessage) return
+
+    val firstUserMessage = messages.find { it.side == ChatSide.USER }
+    val title = when (firstUserMessage) {
+      is ChatMessageText -> {
+        val text = firstUserMessage.content.trim()
+        if (text.length > 80) text.substring(0, 80) + "…" else text
+      }
+      else -> "Conversation"
+    }
+
+    val persistableMessages = messages.filter { msg ->
+      msg is ChatMessageText ||
+        msg is ChatMessageThinking ||
+        msg is ChatMessageError ||
+        msg is ChatMessageInfo ||
+        msg is ChatMessageWarning
+    }
+
+    Log.d(TAG, "Saving conversation '$title' (${persistableMessages.size} msgs)")
+    saveCallback(existingId, taskId, model.name, title, persistableMessages)
+  }
 
   fun addMessage(model: Model, message: ChatMessage) {
     val newMessagesByModel = _uiState.value.messagesByModel.toMutableMap()

@@ -35,14 +35,19 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,7 +76,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
-import com.google.ai.edge.gallery.customtasks.common.CustomTaskDataForBuiltinTask
+import com.google.ai.edge.gallery.data.BuiltInTaskId
+import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.isLegacyTasks
@@ -80,8 +86,14 @@ import com.google.ai.edge.gallery.ui.benchmark.BenchmarkScreen
 import com.google.ai.edge.gallery.ui.common.ErrorDialog
 import com.google.ai.edge.gallery.ui.common.ModelPageAppBar
 import com.google.ai.edge.gallery.ui.common.chat.ModelDownloadStatusInfoPanel
+import com.google.ai.edge.gallery.ui.common.chat.SendMessageTrigger
+import com.google.ai.edge.gallery.ui.history.ConversationHistoryScreen
+import com.google.ai.edge.gallery.ui.history.ConversationHistoryViewModel
 import com.google.ai.edge.gallery.ui.home.HomeScreen
 import com.google.ai.edge.gallery.ui.home.PromoScreenGm4
+import com.google.ai.edge.gallery.ui.llmchat.LlmAskAudioScreen
+import com.google.ai.edge.gallery.ui.llmchat.LlmAskImageScreen
+import com.google.ai.edge.gallery.ui.llmchat.LlmChatScreen
 import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
@@ -96,6 +108,7 @@ private const val ROUTE_MODEL_LIST = "model_list"
 private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
 private const val ROUTE_MODEL_MANAGER = "model_manager"
+private const val ROUTE_CONVERSATION_HISTORY = "conversation_history"
 private const val ENTER_ANIMATION_DURATION_MS = 500
 private val ENTER_ANIMATION_EASING = EaseOutExpo
 private const val ENTER_ANIMATION_DELAY_MS = 100
@@ -289,14 +302,17 @@ fun GalleryNavHost(
         listOf(
           navArgument("taskId") { type = NavType.StringType },
           navArgument("modelName") { type = NavType.StringType },
+          navArgument("conversationId") { type = NavType.StringType; nullable = true },
         ),
       enterTransition = { slideEnter() },
       exitTransition = { slideExit() },
     ) { backStackEntry ->
       val modelName = backStackEntry.arguments?.getString("modelName") ?: ""
       val taskId = backStackEntry.arguments?.getString("taskId") ?: ""
+      val conversationIdToLoad = backStackEntry.arguments?.getString("conversationId")
       val scope = rememberCoroutineScope()
       val context = LocalContext.current
+      val historyViewModel: ConversationHistoryViewModel = hiltViewModel()
 
       modelManagerViewModel.getModelByName(name = modelName)?.let { initialModel ->
         if (lastNavigatedModelName != modelName) {
@@ -307,17 +323,75 @@ fun GalleryNavHost(
         val customTask = modelManagerViewModel.getCustomTaskByTaskId(id = taskId)
         if (customTask != null) {
           if (isLegacyTasks(customTask.task.id)) {
-            customTask.MainScreen(
-              data =
-                CustomTaskDataForBuiltinTask(
+            // Legacy LLM tasks: call their screens directly with history params.
+            val onHistClick = {
+              navController.navigate("$ROUTE_CONVERSATION_HISTORY/${customTask.task.id}")
+            }
+            when (customTask.task.id) {
+              "llm_ask_image" -> {
+                LlmAskImageScreen(
                   modelManagerViewModel = modelManagerViewModel,
-                  onNavUp = {
+                  navigateUp = {
                     enableModelListAnimation = false
                     lastNavigatedModelName = ""
                     navController.navigateUp()
                   },
+                  conversationIdToLoad = conversationIdToLoad,
+                  historyViewModel = historyViewModel,
+                  onNavigateToHistory = onHistClick,
                 )
-            )
+              }
+              "llm_ask_audio" -> {
+                LlmAskAudioScreen(
+                  modelManagerViewModel = modelManagerViewModel,
+                  navigateUp = {
+                    enableModelListAnimation = false
+                    lastNavigatedModelName = ""
+                    navController.navigateUp()
+                  },
+                  conversationIdToLoad = conversationIdToLoad,
+                  historyViewModel = historyViewModel,
+                  onNavigateToHistory = onHistClick,
+                )
+              }
+              else -> {
+                LlmChatScreen(
+                  modelManagerViewModel = modelManagerViewModel,
+                  navigateUp = {
+                    enableModelListAnimation = false
+                    lastNavigatedModelName = ""
+                    navController.navigateUp()
+                  },
+                  taskId = taskId,
+                  conversationIdToLoad = conversationIdToLoad,
+                  historyViewModel = historyViewModel,
+                  onNavigateToHistory = onHistClick,
+                  emptyStateComposable = {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                      Column(
+                        modifier =
+                          Modifier.align(Alignment.Center)
+                            .padding(horizontal = 48.dp)
+                            .padding(bottom = 48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                      ) {
+                        Text(
+                          stringResource(R.string.aichat_emptystate_title),
+                          style = emptyStateTitle,
+                        )
+                        Text(
+                          stringResource(R.string.aichat_emptystate_content),
+                          style = emptyStateContent,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                          textAlign = TextAlign.Center,
+                        )
+                      }
+                    }
+                  },
+                )
+              }
+            }
           } else {
             var disableAppBarControls by remember { mutableStateOf(false) }
             var hideTopBar by remember { mutableStateOf(false) }
@@ -350,6 +424,9 @@ fun GalleryNavHost(
               disableAppBarControls = disableAppBarControls,
               hideTopBar = hideTopBar,
               useThemeColor = customTask.task.useThemeColor,
+              onHistoryClicked = {
+                navController.navigate("$ROUTE_CONVERSATION_HISTORY/${customTask.task.id}")
+              },
             ) { bottomPadding ->
               customTask.MainScreen(
                 data =
@@ -430,6 +507,26 @@ fun GalleryNavHost(
         )
       }
     }
+
+    // Conversation history screen.
+    composable(
+      route = "$ROUTE_CONVERSATION_HISTORY/{taskId}",
+      arguments = listOf(navArgument("taskId") { type = NavType.StringType; nullable = true }),
+      enterTransition = { slideUpEnter() },
+      exitTransition = { slideDownExit() },
+    ) { backStackEntry ->
+      val taskId = backStackEntry.arguments?.getString("taskId")
+      ConversationHistoryScreen(
+        taskId = taskId,
+        onConversationClicked = { conversationId, modelName ->
+          // Navigate to the model page with the conversationId to load.
+          navController.navigate("$ROUTE_MODEL/$taskId/$modelName?conversationId=$conversationId")
+        },
+        navigateUp = {
+          navController.navigateUp()
+        },
+      )
+    }
   }
 
   // Handle incoming intents for deep links
@@ -462,6 +559,9 @@ private fun CustomTaskScreen(
   hideTopBar: Boolean,
   useThemeColor: Boolean,
   onNavigateUp: () -> Unit,
+  onHistoryClicked: (() -> Unit)? = null,
+  conversationIdToLoad: String? = null,
+  historyViewModel: ConversationHistoryViewModel? = null,
   content: @Composable (bottomPadding: Dp) -> Unit,
 ) {
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -518,6 +618,7 @@ private fun CustomTaskScreen(
             Modifier.onGloballyPositioned { coordinates -> appBarHeight = coordinates.size.height },
           hideModelSelector = task.models.size <= 1,
           onConfigChanged = { _, _ -> },
+          onHistoryClicked = onHistoryClicked,
           onBackClicked = { handleNavigateUp() },
           onModelSelected = { prevModel, newSelectedModel ->
             val instanceToCleanUp = prevModel.instance

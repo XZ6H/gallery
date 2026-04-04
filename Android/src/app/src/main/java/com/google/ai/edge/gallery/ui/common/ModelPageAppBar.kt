@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.MapsUgc
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -74,6 +75,7 @@ fun ModelPageAppBar(
   isResettingSession: Boolean = false,
   onResetSessionClicked: (Model) -> Unit = {},
   canShowResetSessionButton: Boolean = false,
+  onHistoryClicked: (() -> Unit)? = null,
   hideModelSelector: Boolean = false,
   useThemeColor: Boolean = false,
   onConfigChanged: (oldConfigValues: Map<String, Any>, newConfigValues: Map<String, Any>) -> Unit =
@@ -84,6 +86,7 @@ fun ModelPageAppBar(
   onSystemPromptChanged: (String) -> Unit = {},
 ) {
   var showConfigDialog by remember { mutableStateOf(false) }
+  var showHistoryButton by remember { mutableStateOf(false) }
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
   val context = LocalContext.current
   val curDownloadStatus = modelManagerUiState.modelDownloadStatus[model.name]
@@ -196,6 +199,17 @@ fun ModelPageAppBar(
                 )
               }
             }
+          }
+        }
+        // History button.
+        if (onHistoryClicked != null) {
+          IconButton(onClick = onHistoryClicked) {
+            Icon(
+              imageVector = Icons.Rounded.History,
+              contentDescription = "Conversation history",
+              tint = MaterialTheme.colorScheme.onSurface,
+              modifier = Modifier.size(20.dp),
+            )
           }
         }
       }
