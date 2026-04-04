@@ -173,15 +173,21 @@ fun ChatView(
         taskId = task.id,
         saveCallback = { id, taskIdArg, modelNameArg, title, messages ->
           if (historyViewModel != null) {
+            val now = System.currentTimeMillis()
             scope.launch(Dispatchers.Default) {
-              val conversation = com.google.ai.edge.gallery.data.history.ConversationEntity(
-                id = id,
-                taskId = taskIdArg,
-                modelName = modelNameArg,
-                title = title,
-                lastMessageTimestamp = System.currentTimeMillis(),
-                createdAt = System.currentTimeMillis(),
-              )
+              // Check if this conversation already exists to preserve createdAt
+              val existing =
+                historyViewModel.repository.getConversation(id)
+              val createdAt = existing?.createdAt ?: now
+              val conversation =
+                com.google.ai.edge.gallery.data.history.ConversationEntity(
+                  id = id,
+                  taskId = taskIdArg,
+                  modelName = modelNameArg,
+                  title = title,
+                  lastMessageTimestamp = now,
+                  createdAt = createdAt,
+                )
               historyViewModel.saveConversation(conversation)
               val messageEntities = messages.mapIndexed { index, msg ->
                 ChatHistoryConverter.fromMessage(msg, conversationId = id, order = index)

@@ -67,4 +67,9 @@ class ConversationHistoryViewModel @Inject constructor(
   suspend fun saveMessages(messages: List<MessageEntity>) {
     repository.saveMessages(messages)
   }
+
+  /** Get an existing conversation entity (for preserving createdAt on re-save). */
+  suspend fun getConversation(conversationId: String): ConversationEntity? {
+    return repository.getConversation(conversationId)
+  }
 }

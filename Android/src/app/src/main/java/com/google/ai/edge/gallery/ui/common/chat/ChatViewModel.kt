@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+import java.util.UUID
+
 private const val TAG = "AGChatViewModel"
 
 data class ChatUiState(
@@ -96,13 +98,15 @@ abstract class ChatViewModel() : ViewModel() {
     taskId: String,
     saveCallback: (String, String, String, String, List<ChatMessage>) -> Unit,
   ) {
-    val existingId = currentConversationId ?: return // New chat with no activity — nothing to save.
     val messages = _uiState.value.messagesByModel[model.name]
     if (messages.isNullOrEmpty()) return
 
     // Only save if there's at least one user message.
     val hasUserMessage = messages.any { it.side == ChatSide.USER }
     if (!hasUserMessage) return
+
+    // Generate a conversation ID if this is a new conversation (not loaded from history).
+    val conversationId = currentConversationId ?: UUID.randomUUID().toString()
 
     val firstUserMessage = messages.find { it.side == ChatSide.USER }
     val title = when (firstUserMessage) {
@@ -122,7 +126,7 @@ abstract class ChatViewModel() : ViewModel() {
     }
 
     Log.d(TAG, "Saving conversation '$title' (${persistableMessages.size} msgs)")
-    saveCallback(existingId, taskId, model.name, title, persistableMessages)
+    saveCallback(conversationId, taskId, model.name, title, persistableMessages)
   }
 
   fun addMessage(model: Model, message: ChatMessage) {
