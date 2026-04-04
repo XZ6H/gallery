@@ -176,8 +176,7 @@ fun ChatView(
             val now = System.currentTimeMillis()
             scope.launch(Dispatchers.Default) {
               // Check if this conversation already exists to preserve createdAt
-              val existing =
-                historyViewModel.repository.getConversation(id)
+              val existing = historyViewModel.getConversation(id)
               val createdAt = existing?.createdAt ?: now
               val conversation =
                 com.google.ai.edge.gallery.data.history.ConversationEntity(
