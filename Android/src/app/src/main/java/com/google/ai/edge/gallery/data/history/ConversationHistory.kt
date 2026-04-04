@@ -73,7 +73,11 @@ data class MessageEntity(
  * Joined result for loading a conversation with all its messages.
  */
 data class ConversationWithMessages(
-  val conversation: ConversationEntity,
+  @Embedded val conversation: ConversationEntity,
+  @Relation(
+    parentColumn = "id",
+    entityColumn = "conversationId",
+  )
   val messages: List<MessageEntity>,
 )
 
