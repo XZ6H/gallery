@@ -1,6 +1,7 @@
 [versions]
 agp = "8.8.2"
-kotlin = "2.2.0"
+kotlin = "2.2.21"
+kotlinReflect = "2.2.21"
 coreKtx = "1.15.0"
 junit = "4.13.2"
 junitVersion = "1.2.1"
@@ -38,8 +39,8 @@ exifinterface = "1.4.1"
 securityCrypto = "1.1.0"
 kotlinReflect = "2.2.21"
 moshi = "1.15.2"
-ksp = "2.3.6"
-room = "2.6.1"
+ksp = "2.2.21-2.0.4"
+room = "2.7.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
