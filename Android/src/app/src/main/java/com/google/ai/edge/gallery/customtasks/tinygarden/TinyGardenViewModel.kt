@@ -35,6 +35,7 @@ import com.google.ai.edge.litertlm.ToolProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,6 +58,9 @@ data class TinyGardenUiState(
 
   // The number of turns.
   val numTurns: Int = 0,
+
+  // Unique ID for the current conversation segment (rotated on each reset).
+  val currentConversationId: String = UUID.randomUUID().toString(),
 )
 
 /** The ViewModel of the task screen. */
@@ -134,6 +138,22 @@ constructor(
 
   fun clearMessages() {
     _uiState.update { _uiState.value.copy(messages = listOf()) }
+  }
+
+  /**
+   * Finalizes the current conversation segment and starts a new one.
+   * Returns the old conversation ID and messages so the caller can persist them.
+   */
+  fun startNewConversationSegment(): Pair<String, List<ChatMessage>> {
+    val oldId = _uiState.value.currentConversationId
+    val oldMessages = _uiState.value.messages.toList()
+    _uiState.update {
+      it.copy(
+        currentConversationId = UUID.randomUUID().toString(),
+        messages = listOf(),
+      )
+    }
+    return Pair(oldId, oldMessages)
   }
 
   fun setProcessing(processing: Boolean) {

@@ -30,6 +30,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.runtime.DisposableEffect
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -93,12 +94,15 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.webkit.WebViewAssetLoader
 import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.convertValueToTargetType
+import com.google.ai.edge.gallery.data.history.ConversationEntity
 import com.google.ai.edge.gallery.firebaseAnalytics
+import com.google.ai.edge.gallery.ui.common.chat.ChatHistoryConverter
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageWarning
 import com.google.ai.edge.gallery.ui.common.chat.ChatSide
@@ -106,11 +110,13 @@ import com.google.ai.edge.gallery.ui.common.getTaskBgGradientColors
 import com.google.ai.edge.gallery.ui.common.textandvoiceinput.HoldToDictateViewModel
 import com.google.ai.edge.gallery.ui.common.textandvoiceinput.TextAndVoiceInput
 import com.google.ai.edge.gallery.ui.common.textandvoiceinput.VoiceRecognizerOverlay
+import com.google.ai.edge.gallery.ui.history.ConversationHistoryViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.customColors
 import com.google.ai.edge.litertlm.ToolProvider
 import com.google.common.io.BaseEncoding
 import java.security.MessageDigest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
@@ -129,6 +135,7 @@ fun TinyGardenScreen(
   setTopBarVisible: (Boolean) -> Unit,
   commandFlow: Flow<TinyGardenCommand>,
   viewModel: TinyGardenViewModel = hiltViewModel(),
+  historyViewModel: ConversationHistoryViewModel = hiltViewModel(),
 ) {
   val uiState by viewModel.uiState.collectAsState()
   var recordAudioPermissionGranted by remember { mutableStateOf(false) }
@@ -170,6 +177,7 @@ fun TinyGardenScreen(
           bottomPadding = bottomPadding,
           commandFlow = commandFlow,
           viewModel = viewModel,
+          historyViewModel = historyViewModel,
           setAppBarControlsDisabled = setAppBarControlsDisabled,
           setTopBarVisible = setTopBarVisible,
         )
@@ -222,6 +230,7 @@ fun MainUi(
   tools: List<ToolProvider>,
   bottomPadding: Dp,
   viewModel: TinyGardenViewModel,
+  historyViewModel: ConversationHistoryViewModel,
   setAppBarControlsDisabled: (Boolean) -> Unit,
   setTopBarVisible: (Boolean) -> Unit,
   commandFlow: Flow<TinyGardenCommand>,
@@ -252,6 +261,42 @@ fun MainUi(
     curDownloadStatus == ModelDownloadStatusType.SUCCEEDED &&
       (!modelManagerUiState.isModelInitialized(model = model) || uiState.processing)
   )
+
+  // Save the current conversation segment to the database.
+  suspend fun saveConversationSegment(conversationId: String, messages: List<com.google.ai.edge.gallery.ui.common.chat.ChatMessage>) {
+    if (messages.isEmpty()) return
+    val now = System.currentTimeMillis()
+    val existing = historyViewModel.getConversation(conversationId)
+    val title = messages.firstOrNull { it is ChatMessageText && it.side == ChatSide.USER }
+      ?.let { (it as ChatMessageText).content.take(50) }
+      ?: "Tiny Garden Session"
+    val conversation = ConversationEntity(
+      id = conversationId,
+      taskId = BuiltInTaskId.LLM_TINY_GARDEN,
+      modelName = model.name,
+      title = title,
+      lastMessageTimestamp = now,
+      createdAt = existing?.createdAt ?: now,
+    )
+    historyViewModel.saveConversation(conversation)
+    val entities = messages.mapIndexedNotNull { index, msg ->
+      ChatHistoryConverter.fromMessage(msg, conversationId = conversationId, order = index)
+    }
+    if (entities.isNotEmpty()) {
+      historyViewModel.saveMessages(entities)
+    }
+  }
+
+  // Save conversation when navigating away.
+  DisposableEffect(Unit) {
+    onDispose {
+      val id = uiState.currentConversationId
+      val messages = uiState.messages
+      scope.launch(Dispatchers.Default) {
+        saveConversationSegment(id, messages)
+      }
+    }
+  }
 
   // Close conversation history panel when pressing back button.
   BackHandler(enabled = showConversationHistoryPanel) { showConversationHistoryPanel = false }
@@ -381,6 +426,11 @@ fun MainUi(
             Log.d(TAG, "Target turn to reset: $numTurnsToReset")
             if (uiState.numTurns == numTurnsToReset) {
               Log.d(TAG, "!! This is the turn to reset conversation")
+              // Save the current segment before rotating to a new conversation ID.
+              val (oldId, oldMessages) = viewModel.startNewConversationSegment()
+              scope.launch(Dispatchers.Default) {
+                saveConversationSegment(oldId, oldMessages)
+              }
               viewModel.resetConversation(
                 model = model,
                 tools = tools,
@@ -671,6 +721,7 @@ fun MainUi(
           task = task,
           bottomPadding = bottomPadding,
           viewModel = viewModel,
+          historyViewModel = historyViewModel,
           onDismiss = { showConversationHistoryPanel = false },
         )
       }
