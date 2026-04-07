@@ -23,6 +23,9 @@ import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.history.ConversationEntity
+import com.google.ai.edge.gallery.data.history.ConversationRepository
+import com.google.ai.edge.gallery.ui.common.chat.ChatHistoryConverter
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessage
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageWarning
@@ -70,6 +73,7 @@ class TinyGardenViewModel
 constructor(
   @ApplicationContext private val context: Context,
   val dataStoreRepository: DataStoreRepository,
+  private val conversationRepository: ConversationRepository,
 ) : ViewModel() {
   protected val _uiState = MutableStateFlow(TinyGardenUiState())
   val uiState = _uiState.asStateFlow()
@@ -141,19 +145,60 @@ constructor(
   }
 
   /**
-   * Finalizes the current conversation segment and starts a new one.
-   * Returns the old conversation ID and messages so the caller can persist them.
+   * Saves the current conversation segment to the database, then rotates to a new segment.
+   * Uses viewModelScope so it survives composable disposal.
    */
-  fun startNewConversationSegment(): Pair<String, List<ChatMessage>> {
-    val oldId = _uiState.value.currentConversationId
-    val oldMessages = _uiState.value.messages.toList()
+  fun saveAndStartNewSegment(modelName: String, taskId: String) {
+    val id = _uiState.value.currentConversationId
+    val messages = _uiState.value.messages.toList()
     _uiState.update {
       it.copy(
         currentConversationId = UUID.randomUUID().toString(),
         messages = listOf(),
       )
     }
-    return Pair(oldId, oldMessages)
+    saveSegment(id, messages, modelName, taskId)
+  }
+
+  /**
+   * Saves the current in-progress conversation segment without rotating the ID.
+   * Safe to call from DisposableEffect — uses viewModelScope, not the composable scope.
+   */
+  fun saveCurrentSession(modelName: String, taskId: String) {
+    val id = _uiState.value.currentConversationId
+    val messages = _uiState.value.messages.toList()
+    saveSegment(id, messages, modelName, taskId)
+  }
+
+  private fun saveSegment(
+    conversationId: String,
+    messages: List<ChatMessage>,
+    modelName: String,
+    taskId: String,
+  ) {
+    if (messages.isEmpty()) return
+    viewModelScope.launch(Dispatchers.IO) {
+      val now = System.currentTimeMillis()
+      val existing = conversationRepository.getConversation(conversationId)
+      val title = messages.firstOrNull { it is ChatMessageText && it.side == ChatSide.USER }
+        ?.let { (it as ChatMessageText).content.take(50) }
+        ?: "Tiny Garden Session"
+      val conversation = ConversationEntity(
+        id = conversationId,
+        taskId = taskId,
+        modelName = modelName,
+        title = title,
+        lastMessageTimestamp = now,
+        createdAt = existing?.createdAt ?: now,
+      )
+      conversationRepository.saveConversation(conversation)
+      val entities = messages.mapIndexedNotNull { index, msg ->
+        ChatHistoryConverter.fromMessage(msg, conversationId = conversationId, order = index)
+      }
+      if (entities.isNotEmpty()) {
+        conversationRepository.saveMessages(entities)
+      }
+    }
   }
 
   fun setProcessing(processing: Boolean) {

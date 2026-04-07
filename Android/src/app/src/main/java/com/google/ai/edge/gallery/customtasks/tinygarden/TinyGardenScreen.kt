@@ -100,9 +100,7 @@ import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.convertValueToTargetType
-import com.google.ai.edge.gallery.data.history.ConversationEntity
 import com.google.ai.edge.gallery.firebaseAnalytics
-import com.google.ai.edge.gallery.ui.common.chat.ChatHistoryConverter
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageWarning
 import com.google.ai.edge.gallery.ui.common.chat.ChatSide
@@ -116,7 +114,6 @@ import com.google.ai.edge.gallery.ui.theme.customColors
 import com.google.ai.edge.litertlm.ToolProvider
 import com.google.common.io.BaseEncoding
 import java.security.MessageDigest
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
@@ -262,39 +259,11 @@ fun MainUi(
       (!modelManagerUiState.isModelInitialized(model = model) || uiState.processing)
   )
 
-  // Save the current conversation segment to the database.
-  suspend fun saveConversationSegment(conversationId: String, messages: List<com.google.ai.edge.gallery.ui.common.chat.ChatMessage>) {
-    if (messages.isEmpty()) return
-    val now = System.currentTimeMillis()
-    val existing = historyViewModel.getConversation(conversationId)
-    val title = messages.firstOrNull { it is ChatMessageText && it.side == ChatSide.USER }
-      ?.let { (it as ChatMessageText).content.take(50) }
-      ?: "Tiny Garden Session"
-    val conversation = ConversationEntity(
-      id = conversationId,
-      taskId = BuiltInTaskId.LLM_TINY_GARDEN,
-      modelName = model.name,
-      title = title,
-      lastMessageTimestamp = now,
-      createdAt = existing?.createdAt ?: now,
-    )
-    historyViewModel.saveConversation(conversation)
-    val entities = messages.mapIndexedNotNull { index, msg ->
-      ChatHistoryConverter.fromMessage(msg, conversationId = conversationId, order = index)
-    }
-    if (entities.isNotEmpty()) {
-      historyViewModel.saveMessages(entities)
-    }
-  }
-
-  // Save conversation when navigating away.
+  // Save conversation when navigating away. Uses viewModelScope (not composable scope)
+  // so the coroutine survives composable disposal.
   DisposableEffect(Unit) {
     onDispose {
-      val id = uiState.currentConversationId
-      val messages = uiState.messages
-      scope.launch(Dispatchers.Default) {
-        saveConversationSegment(id, messages)
-      }
+      viewModel.saveCurrentSession(modelName = model.name, taskId = task.id)
     }
   }
 
@@ -426,11 +395,8 @@ fun MainUi(
             Log.d(TAG, "Target turn to reset: $numTurnsToReset")
             if (uiState.numTurns == numTurnsToReset) {
               Log.d(TAG, "!! This is the turn to reset conversation")
-              // Save the current segment before rotating to a new conversation ID.
-              val (oldId, oldMessages) = viewModel.startNewConversationSegment()
-              scope.launch(Dispatchers.Default) {
-                saveConversationSegment(oldId, oldMessages)
-              }
+              // Save current segment and rotate to a new conversation ID.
+              viewModel.saveAndStartNewSegment(modelName = model.name, taskId = task.id)
               viewModel.resetConversation(
                 model = model,
                 tools = tools,
