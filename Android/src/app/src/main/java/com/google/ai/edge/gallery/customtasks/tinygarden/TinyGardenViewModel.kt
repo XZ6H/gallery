@@ -81,6 +81,16 @@ constructor(
   private val _isResettingConversation = MutableStateFlow(false)
   private val isResettingConversation = _isResettingConversation.asStateFlow()
 
+  // Cached so saveSegment can be called from getCommand's finally block.
+  private var activeModelName: String = ""
+  private var activeTaskId: String = ""
+
+  /** Call once from the composable to set the model/task context for auto-saving. */
+  fun setActiveContext(modelName: String, taskId: String) {
+    activeModelName = modelName
+    activeTaskId = taskId
+  }
+
   /**
    * Sends the user instruction to the model and processes the response.
    *
@@ -130,6 +140,8 @@ constructor(
         onError(e.message ?: context.getString(R.string.unknown_error))
       } finally {
         setProcessing(processing = false)
+        // Auto-save after each turn so conversations survive app kills.
+        saveCurrentSession(activeModelName, activeTaskId)
       }
     }
   }

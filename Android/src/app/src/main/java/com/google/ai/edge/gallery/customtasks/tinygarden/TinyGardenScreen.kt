@@ -252,6 +252,11 @@ fun MainUi(
   val resources = LocalResources.current
   val context = LocalContext.current
 
+  // Set model/task context so the ViewModel can auto-save after each turn.
+  LaunchedEffect(model.name, task.id) {
+    viewModel.setActiveContext(modelName = model.name, taskId = task.id)
+  }
+
   val taskColor = getTaskBgGradientColors(task = task)[1]
   val curDownloadStatus = modelManagerUiState.modelDownloadStatus[model.name]?.status
   setAppBarControlsDisabled(
