@@ -24,12 +24,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.HorizontalDivider
@@ -57,7 +56,6 @@ import androidx.compose.ui.unit.dp
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Task
-import com.google.ai.edge.gallery.data.history.ConversationEntity
 import com.google.ai.edge.gallery.ui.common.chat.ChatHistoryConverter
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessage
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageError
@@ -75,6 +73,13 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
+// null = current session, non-null = viewing a saved conversation by ID
+private sealed class PanelView {
+  data object CurrentSession : PanelView()
+  data object PastConversationsList : PanelView()
+  data class SavedConversation(val id: String) : PanelView()
+}
+
 /** A panel to show the conversation history. */
 @Composable
 fun ConversationHistoryPanel(
@@ -89,17 +94,15 @@ fun ConversationHistoryPanel(
     .getConversationsByTask(BuiltInTaskId.LLM_TINY_GARDEN)
     .collectAsState(initial = emptyList())
 
-  // null = show conversation list; non-null = show messages for that conversation ID.
-  // Empty string is a sentinel meaning "show current session".
-  var selectedConversationId: String? by remember { mutableStateOf(null) }
+  var panelView: PanelView by remember { mutableStateOf(PanelView.CurrentSession) }
   var detailMessages: List<ChatMessage> by remember { mutableStateOf(emptyList()) }
   val scope = rememberCoroutineScope()
 
   // Load messages when a saved conversation is selected.
-  LaunchedEffect(selectedConversationId) {
-    val id = selectedConversationId
-    if (id != null && id.isNotEmpty()) {
-      val loaded = historyViewModel.loadConversation(id)
+  LaunchedEffect(panelView) {
+    val view = panelView
+    if (view is PanelView.SavedConversation) {
+      val loaded = historyViewModel.loadConversation(view.id)
       detailMessages = loaded?.messages
         ?.sortedBy { it.order }
         ?.mapNotNull { ChatHistoryConverter.toMessage(it) }
@@ -122,65 +125,77 @@ fun ConversationHistoryPanel(
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      if (selectedConversationId != null) {
-        IconButton(onClick = { selectedConversationId = null }) {
+      when (panelView) {
+        is PanelView.CurrentSession -> {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.padding(start = 8.dp)) {
+              Text(
+                stringResource(R.string.conversation_history),
+                style = MaterialTheme.typography.titleMedium,
+              )
+            }
+          }
+        }
+        is PanelView.PastConversationsList -> {
+          IconButton(onClick = { panelView = PanelView.CurrentSession }) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+              contentDescription = "Back",
+            )
+          }
+          Text("Past Conversations", style = MaterialTheme.typography.titleMedium)
+        }
+        is PanelView.SavedConversation -> {
+          IconButton(onClick = { panelView = PanelView.PastConversationsList }) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+              contentDescription = "Back",
+            )
+          }
+        }
+      }
+      Row {
+        // Show past conversations button only from the current session view.
+        if (panelView is PanelView.CurrentSession && savedConversations.isNotEmpty()) {
+          IconButton(onClick = { panelView = PanelView.PastConversationsList }) {
+            Icon(
+              imageVector = Icons.Outlined.History,
+              contentDescription = "Past conversations",
+            )
+          }
+        }
+        IconButton(onClick = { onDismiss() }) {
           Icon(
-            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+            imageVector = Icons.Rounded.Close,
             contentDescription = stringResource(R.string.cd_close_icon),
           )
         }
-      } else {
-        Box(modifier = Modifier.padding(start = 8.dp)) {
-          Text(
-            stringResource(R.string.conversation_history),
-            style = MaterialTheme.typography.titleMedium,
-          )
-        }
-      }
-      IconButton(onClick = { onDismiss() }) {
-        Icon(
-          imageVector = Icons.Rounded.Close,
-          contentDescription = stringResource(R.string.cd_close_icon),
-        )
       }
     }
 
-    if (selectedConversationId == null) {
-      // --- Conversation list ---
-      val currentMessages = uiState.messages
-      if (currentMessages.isEmpty() && savedConversations.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-          Text(
-            "No conversation history yet",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-      } else {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-          // Current session entry.
-          if (currentMessages.isNotEmpty()) {
-            item {
-              ConversationListItem(
-                title = "Current Session",
-                subtitle = "${currentMessages.size} message${if (currentMessages.size == 1) "" else "s"}",
-                onClick = {
-                  detailMessages = currentMessages
-                  selectedConversationId = "" // sentinel for current session
-                },
-                onDelete = null,
-              )
-              HorizontalDivider()
-            }
-          }
+    when (panelView) {
+      is PanelView.CurrentSession -> {
+        // Show current session messages directly.
+        MessageList(
+          messages = uiState.messages,
+          task = task,
+          emptyText = "No messages yet",
+          modifier = Modifier.weight(1f),
+        )
+      }
 
-          // Saved conversations.
-          items(savedConversations, key = { it.id }) { conversation ->
+      is PanelView.PastConversationsList -> {
+        // Show list of saved conversations.
+        val scrollState = rememberScrollState()
+        Column(
+          modifier = Modifier.weight(1f).verticalScroll(scrollState),
+        ) {
+          for (conversation in savedConversations) {
             ConversationListItem(
               title = conversation.title,
               subtitle = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
                 .format(Date(conversation.lastMessageTimestamp)),
-              onClick = { selectedConversationId = conversation.id },
+              onClick = { panelView = PanelView.SavedConversation(conversation.id) },
               onDelete = {
                 scope.launch { historyViewModel.deleteConversation(conversation.id) }
               },
@@ -189,90 +204,106 @@ fun ConversationHistoryPanel(
           }
         }
       }
-    } else {
-      // --- Message detail view ---
-      val messages = if (selectedConversationId!!.isEmpty()) uiState.messages else detailMessages
-      val listState = rememberScrollState()
 
-      LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollTo(Int.MAX_VALUE)
+      is PanelView.SavedConversation -> {
+        MessageList(
+          messages = detailMessages,
+          task = task,
+          emptyText = "No messages",
+          modifier = Modifier.weight(1f),
+        )
       }
+    }
+  }
+}
 
-      if (messages.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-          Text(
-            "No messages",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
+@Composable
+private fun MessageList(
+  messages: List<ChatMessage>,
+  task: Task,
+  emptyText: String,
+  modifier: Modifier = Modifier,
+) {
+  val listState = rememberScrollState()
+
+  LaunchedEffect(messages.size) {
+    if (messages.isNotEmpty()) {
+      listState.animateScrollTo(listState.maxValue)
+    }
+  }
+
+  if (messages.isEmpty()) {
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+      Text(
+        emptyText,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+  } else {
+    Column(
+      modifier = modifier.padding(horizontal = 16.dp).verticalScroll(state = listState)
+    ) {
+      for (message in messages) {
+        var hAlign: Alignment.Horizontal = Alignment.End
+        var backgroundColor: Color = MaterialTheme.customColors.userBubbleBgColor
+        var hardCornerAtLeftOrRight = false
+        var extraPaddingStart = 48.dp
+        var extraPaddingEnd = 0.dp
+        if (message.side == ChatSide.AGENT) {
+          hAlign = Alignment.Start
+          backgroundColor = MaterialTheme.customColors.agentBubbleBgColor
+          hardCornerAtLeftOrRight = true
+          extraPaddingStart = 0.dp
+          extraPaddingEnd = 48.dp
+        } else if (message.side == ChatSide.SYSTEM) {
+          extraPaddingStart = 24.dp
+          extraPaddingEnd = 24.dp
         }
-      } else {
+        val bubbleBorderRadius = dimensionResource(R.dimen.chat_bubble_corner_radius)
+
         Column(
           modifier =
-            Modifier.weight(1f).padding(horizontal = 16.dp).verticalScroll(state = listState)
-        ) {
-          for (message in messages) {
-            var hAlign: Alignment.Horizontal = Alignment.End
-            var backgroundColor: Color = MaterialTheme.customColors.userBubbleBgColor
-            var hardCornerAtLeftOrRight = false
-            var extraPaddingStart = 48.dp
-            var extraPaddingEnd = 0.dp
-            if (message.side == ChatSide.AGENT) {
-              hAlign = Alignment.Start
-              backgroundColor = MaterialTheme.customColors.agentBubbleBgColor
-              hardCornerAtLeftOrRight = true
-              extraPaddingStart = 0.dp
-              extraPaddingEnd = 48.dp
-            } else if (message.side == ChatSide.SYSTEM) {
-              extraPaddingStart = 24.dp
-              extraPaddingEnd = 24.dp
-            }
-            val bubbleBorderRadius = dimensionResource(R.dimen.chat_bubble_corner_radius)
+            Modifier.fillMaxWidth()
+              .padding(
+                start = extraPaddingStart,
+                end = extraPaddingEnd,
+                top = 6.dp,
+                bottom = 6.dp,
+              ),
+          horizontalAlignment = hAlign,
+        ) messageColumn@{
+          var agentName = stringResource(task.agentNameRes)
+          if (message.accelerator.isNotEmpty()) {
+            agentName = "$agentName on ${message.accelerator}"
+          }
+          MessageSender(message = message, agentName = agentName)
 
-            Column(
-              modifier =
-                Modifier.fillMaxWidth()
-                  .padding(
-                    start = extraPaddingStart,
-                    end = extraPaddingEnd,
-                    top = 6.dp,
-                    bottom = 6.dp,
-                  ),
-              horizontalAlignment = hAlign,
-            ) messageColumn@{
-              var agentName = stringResource(task.agentNameRes)
-              if (message.accelerator.isNotEmpty()) {
-                agentName = "$agentName on ${message.accelerator}"
-              }
-              MessageSender(message = message, agentName = agentName)
-
+          when (message) {
+            is ChatMessageWarning -> MessageBodyWarning(message = message)
+            is ChatMessageError -> MessageBodyError(message = message)
+            else -> {
               when (message) {
-                is ChatMessageWarning -> MessageBodyWarning(message = message)
-                is ChatMessageError -> MessageBodyError(message = message)
-                else -> {
-                  when (message) {
-                    is ChatMessageText -> {
-                      Row(
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                      ) {
-                        Box(
-                          modifier =
-                            Modifier.clip(
-                                MessageBubbleShape(
-                                  radius = bubbleBorderRadius,
-                                  hardCornerAtLeftOrRight = hardCornerAtLeftOrRight,
-                                )
-                              )
-                              .background(backgroundColor)
-                        ) {
-                          MessageBodyText(message = message, inProgress = false)
-                        }
-                      }
+                is ChatMessageText -> {
+                  Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  ) {
+                    Box(
+                      modifier =
+                        Modifier.clip(
+                            MessageBubbleShape(
+                              radius = bubbleBorderRadius,
+                              hardCornerAtLeftOrRight = hardCornerAtLeftOrRight,
+                            )
+                          )
+                          .background(backgroundColor)
+                    ) {
+                      MessageBodyText(message = message, inProgress = false)
                     }
-                    else -> {}
                   }
                 }
+                else -> {}
               }
             }
           }
