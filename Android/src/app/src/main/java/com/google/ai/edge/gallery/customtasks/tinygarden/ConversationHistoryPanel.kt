@@ -98,6 +98,18 @@ fun ConversationHistoryPanel(
   var detailMessages: List<ChatMessage> by remember { mutableStateOf(emptyList()) }
   val scope = rememberCoroutineScope()
 
+  // If current session is empty but past conversations exist, default to the past list
+  // so the user isn't staring at "No messages yet" when history exists.
+  LaunchedEffect(savedConversations, uiState.messages.isEmpty()) {
+    if (
+      panelView is PanelView.CurrentSession &&
+      uiState.messages.isEmpty() &&
+      savedConversations.isNotEmpty()
+    ) {
+      panelView = PanelView.PastConversationsList
+    }
+  }
+
   // Load messages when a saved conversation is selected.
   LaunchedEffect(panelView) {
     val view = panelView

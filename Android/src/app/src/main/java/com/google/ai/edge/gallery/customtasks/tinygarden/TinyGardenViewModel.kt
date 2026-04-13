@@ -188,27 +188,47 @@ constructor(
     modelName: String,
     taskId: String,
   ) {
-    if (messages.isEmpty()) return
-    viewModelScope.launch(Dispatchers.IO) {
-      val now = System.currentTimeMillis()
-      val existing = conversationRepository.getConversation(conversationId)
-      val title = messages.firstOrNull { it is ChatMessageText && it.side == ChatSide.USER }
-        ?.let { (it as ChatMessageText).content.take(50) }
-        ?: "Tiny Garden Session"
-      val conversation = ConversationEntity(
-        id = conversationId,
-        taskId = taskId,
-        modelName = modelName,
-        title = title,
-        lastMessageTimestamp = now,
-        createdAt = existing?.createdAt ?: now,
-      )
-      conversationRepository.saveConversation(conversation)
-      val entities = messages.mapIndexedNotNull { index, msg ->
-        ChatHistoryConverter.fromMessage(msg, conversationId = conversationId, order = index)
-      }
-      if (entities.isNotEmpty()) {
-        conversationRepository.saveMessages(entities)
+    Log.d(
+      TAG,
+      "saveSegment id=$conversationId taskId='$taskId' model='$modelName' msgs=${messages.size}",
+    )
+    if (messages.isEmpty()) {
+      Log.d(TAG, "saveSegment skip: empty messages")
+      return
+    }
+    if (taskId.isEmpty()) {
+      Log.w(TAG, "saveSegment skip: empty taskId (setActiveContext not called yet)")
+      return
+    }
+    // NonCancellable so the write completes even if viewModelScope is cancelled on VM clear.
+    viewModelScope.launch(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+      try {
+        val now = System.currentTimeMillis()
+        val existing = conversationRepository.getConversation(conversationId)
+        val title = messages.firstOrNull { it is ChatMessageText && it.side == ChatSide.USER }
+          ?.let { (it as ChatMessageText).content.take(50) }
+          ?: "Tiny Garden Session"
+        val conversation = ConversationEntity(
+          id = conversationId,
+          taskId = taskId,
+          modelName = modelName,
+          title = title,
+          lastMessageTimestamp = now,
+          createdAt = existing?.createdAt ?: now,
+        )
+        conversationRepository.saveConversation(conversation)
+        // Delete stale rows first. MessageEntity uses autoGenerate id=0, so REPLACE on re-insert
+        // just creates duplicates instead of replacing existing rows.
+        conversationRepository.deleteMessagesForConversation(conversationId)
+        val entities = messages.mapIndexedNotNull { index, msg ->
+          ChatHistoryConverter.fromMessage(msg, conversationId = conversationId, order = index)
+        }
+        if (entities.isNotEmpty()) {
+          conversationRepository.saveMessages(entities)
+        }
+        Log.d(TAG, "saveSegment wrote ${entities.size} msgs for id=$conversationId")
+      } catch (e: Exception) {
+        Log.e(TAG, "saveSegment failed", e)
       }
     }
   }

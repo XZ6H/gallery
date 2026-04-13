@@ -71,6 +71,11 @@ class ConversationRepository @Inject constructor(
     dao.deleteConversationById(conversationId)
   }
 
+  /** Delete all messages for a conversation (without deleting the conversation itself). */
+  suspend fun deleteMessagesForConversation(conversationId: String) {
+    dao.deleteMessagesForConversation(conversationId)
+  }
+
   /** Get raw message entities for a conversation. */
   suspend fun getMessagesForConversation(conversationId: String): List<MessageEntity> {
     return dao.getMessagesForConversation(conversationId)
