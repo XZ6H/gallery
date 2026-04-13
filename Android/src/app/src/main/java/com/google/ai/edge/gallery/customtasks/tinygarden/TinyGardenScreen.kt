@@ -55,6 +55,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,6 +65,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -243,6 +245,7 @@ fun MainUi(
   var curAmplitude by remember { mutableIntStateOf(0) }
   val holdToDictateUiState by holdToDictateViewModel.uiState.collectAsState()
   var showConversationHistoryPanel by remember { mutableStateOf(false) }
+  var showSystemPromptDialog by remember { mutableStateOf(false) }
   var showErrorDialog by remember { mutableStateOf(false) }
   var errorDialogContent by remember { mutableStateOf("") }
   val snackbarHostState = remember { SnackbarHostState() }
@@ -642,14 +645,22 @@ fun MainUi(
             clearTextTrigger = clearTextTrigger,
             defaultTextInputMode = true,
           )
-          Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-            if (uiState.processing) {
+          if (uiState.processing) {
+            Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
               CircularProgressIndicator(
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 strokeWidth = 3.dp,
                 modifier = Modifier.padding(end = 8.dp).size(24.dp),
               )
-            } else {
+            }
+          } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              IconButton(onClick = { showSystemPromptDialog = true }) {
+                Icon(
+                  imageVector = Icons.Outlined.Edit,
+                  contentDescription = stringResource(R.string.cd_edit_system_prompt),
+                )
+              }
               IconButton(
                 onClick = { showConversationHistoryPanel = true },
                 modifier = Modifier.padding(end = 8.dp),
@@ -697,6 +708,67 @@ fun MainUi(
         )
       }
     }
+  }
+
+  if (showSystemPromptDialog) {
+    var promptText by remember {
+      mutableStateOf(TinyGardenPrefs.getEffectiveBasePrompt(context))
+    }
+    AlertDialog(
+      title = { Text(stringResource(R.string.edit_system_prompt)) },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Text(
+            stringResource(R.string.edit_system_prompt_note),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.customColors.warningTextColor,
+          )
+          OutlinedTextField(
+            value = promptText,
+            onValueChange = { promptText = it },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 8,
+            maxLines = 16,
+            textStyle = MaterialTheme.typography.bodyMedium,
+          )
+        }
+      },
+      onDismissRequest = { showSystemPromptDialog = false },
+      dismissButton = {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+          TextButton(onClick = { promptText = DEFAULT_TINY_GARDEN_SYSTEM_PROMPT }) {
+            Text(stringResource(R.string.restore_default))
+          }
+          TextButton(onClick = { showSystemPromptDialog = false }) {
+            Text(stringResource(R.string.cancel))
+          }
+        }
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            if (promptText == DEFAULT_TINY_GARDEN_SYSTEM_PROMPT) {
+              TinyGardenPrefs.clearCustomSystemPrompt(context)
+            } else {
+              TinyGardenPrefs.setCustomSystemPrompt(context, promptText)
+            }
+            showSystemPromptDialog = false
+            viewModel.resetEngine(
+              context = context,
+              model = model,
+              tools = tools,
+              onError = {
+                errorDialogContent = it
+                showErrorDialog = true
+              },
+            )
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = taskColor),
+        ) {
+          Text(stringResource(R.string.save), color = Color.White)
+        }
+      },
+    )
   }
 
   if (showErrorDialog) {

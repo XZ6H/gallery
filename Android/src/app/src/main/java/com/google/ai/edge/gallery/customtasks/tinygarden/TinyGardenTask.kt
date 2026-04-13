@@ -34,7 +34,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 
-private const val SYSTEM_PROMPT =
+const val DEFAULT_TINY_GARDEN_SYSTEM_PROMPT =
   """You are an assistant helping the user play a game about gardening.
 
 The environment is a 3x3 grid of garden plots. The plots are numbered 1 through 9.
@@ -112,7 +112,10 @@ class TinyGardenTask @Inject constructor() : CustomTask {
       supportImage = false,
       supportAudio = false,
       onDone = onDone,
-      systemInstruction = Contents.of(getTinyGardenSystemPrompt()),
+      systemInstruction =
+        Contents.of(
+          getTinyGardenSystemPrompt(basePrompt = TinyGardenPrefs.getEffectiveBasePrompt(context))
+        ),
       tools = tools,
       enableConversationConstrainedDecoding = true,
     )
@@ -151,8 +154,9 @@ fun getTinyGardenSystemPrompt(
   prevSeed: String = "",
   prevPlots: String = "",
   prevAction: String = "",
+  basePrompt: String = DEFAULT_TINY_GARDEN_SYSTEM_PROMPT,
 ): String {
-  val parts = mutableListOf(SYSTEM_PROMPT)
+  val parts = mutableListOf(basePrompt)
   if (prevSeed.isNotEmpty() || prevPlots.isNotEmpty() || prevAction.isNotEmpty()) {
     parts.add("Here is the info about user's last action:")
   }

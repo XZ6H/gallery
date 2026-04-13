@@ -401,4 +401,13 @@
   <!-- Content description spoken when the "menu" icon is focused. [CHAR_LIMIT=NONE] -->
   <string name="cd_menu">Menu</string>
 
+  <!-- TinyGarden: title of the system prompt editor dialog. [CHAR_LIMIT=40] -->
+  <string name="edit_system_prompt">Edit system prompt</string>
+  <!-- TinyGarden: advisory text under the system prompt editor. [CHAR_LIMIT=NONE] -->
+  <string name="edit_system_prompt_note">Saving will reset the engine so the new prompt takes effect.</string>
+  <!-- TinyGarden: label for the restore-default button in the system prompt editor. [CHAR_LIMIT=24] -->
+  <string name="restore_default">Restore default</string>
+  <!-- TinyGarden: content description for the edit-system-prompt icon. [CHAR_LIMIT=NONE] -->
+  <string name="cd_edit_system_prompt">Edit system prompt</string>
+
 </resources>

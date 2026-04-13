@@ -277,7 +277,12 @@ constructor(
                   ChatMessageWarning(content = context.getString(R.string.engin_reset_message))
               )
             },
-            systemInstruction = Contents.of(getTinyGardenSystemPrompt()),
+            systemInstruction =
+              Contents.of(
+                getTinyGardenSystemPrompt(
+                  basePrompt = TinyGardenPrefs.getEffectiveBasePrompt(context)
+                )
+              ),
             tools = tools,
             enableConversationConstrainedDecoding = true,
           )
@@ -302,6 +307,7 @@ constructor(
           prevSeed = prevSeed,
           prevPlots = prevPlots,
           prevAction = prevAction,
+          basePrompt = TinyGardenPrefs.getEffectiveBasePrompt(context),
         )
       Log.d(TAG, "Current system prompt:\n$curSystemPrompt")
       LlmChatModelHelper.resetConversation(
