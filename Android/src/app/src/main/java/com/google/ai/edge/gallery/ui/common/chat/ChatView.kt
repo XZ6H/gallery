@@ -73,6 +73,7 @@ import com.google.ai.edge.gallery.ui.common.ModelPageAppBar
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 
 private const val TAG = "AGChatView"
@@ -174,7 +175,10 @@ fun ChatView(
         saveCallback = { id, taskIdArg, modelNameArg, title, messages ->
           if (historyViewModel != null) {
             val now = System.currentTimeMillis()
-            scope.launch(Dispatchers.Default) {
+            // NonCancellable: this is triggered from onDispose, so `scope` (the composable
+            // scope) is being cancelled at the same time. Without NonCancellable the Room
+            // writes would be cancelled before they run, leaving the history panel empty.
+            scope.launch(Dispatchers.Default + NonCancellable) {
               // Check if this conversation already exists to preserve createdAt
               val existing = historyViewModel.getConversation(id)
               val createdAt = existing?.createdAt ?: now

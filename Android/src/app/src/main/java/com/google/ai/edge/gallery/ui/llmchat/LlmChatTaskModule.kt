@@ -44,6 +44,7 @@ import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.ui.theme.emptyStateContent
 import com.google.ai.edge.gallery.ui.theme.emptyStateTitle
+import com.google.ai.edge.litertlm.Contents
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -77,6 +78,7 @@ class LlmChatTask @Inject constructor() : CustomTask {
     model: Model,
     onDone: (String) -> Unit,
   ) {
+    val customPrompt = LlmChatPrefs.getSystemPrompt(context, BuiltInTaskId.LLM_CHAT)
     model.runtimeHelper.initialize(
       context = context,
       model = model,
@@ -84,6 +86,7 @@ class LlmChatTask @Inject constructor() : CustomTask {
       supportAudio = false,
       onDone = onDone,
       coroutineScope = coroutineScope,
+      systemInstruction = if (customPrompt.isNotEmpty()) Contents.of(customPrompt) else null,
     )
   }
 
@@ -159,6 +162,7 @@ class LlmAskImageTask @Inject constructor() : CustomTask {
     model: Model,
     onDone: (String) -> Unit,
   ) {
+    val customPrompt = LlmChatPrefs.getSystemPrompt(context, BuiltInTaskId.LLM_ASK_IMAGE)
     model.runtimeHelper.initialize(
       context = context,
       model = model,
@@ -166,6 +170,7 @@ class LlmAskImageTask @Inject constructor() : CustomTask {
       supportAudio = false,
       onDone = onDone,
       coroutineScope = coroutineScope,
+      systemInstruction = if (customPrompt.isNotEmpty()) Contents.of(customPrompt) else null,
     )
   }
 
@@ -224,6 +229,7 @@ class LlmAskAudioTask @Inject constructor() : CustomTask {
     model: Model,
     onDone: (String) -> Unit,
   ) {
+    val customPrompt = LlmChatPrefs.getSystemPrompt(context, BuiltInTaskId.LLM_ASK_AUDIO)
     model.runtimeHelper.initialize(
       context = context,
       model = model,
@@ -231,6 +237,7 @@ class LlmAskAudioTask @Inject constructor() : CustomTask {
       supportAudio = true,
       onDone = onDone,
       coroutineScope = coroutineScope,
+      systemInstruction = if (customPrompt.isNotEmpty()) Contents.of(customPrompt) else null,
     )
   }
 
