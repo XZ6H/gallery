@@ -27,7 +27,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import com.google.ai.edge.litertlm.Contents
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -211,6 +217,38 @@ fun ChatViewWrapper(
   val context = LocalContext.current
   val task = modelManagerViewModel.getTaskById(id = taskId)!!
   val allowThinking = task.allowThinking()
+  val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
+
+  // For the built-in LLM chat tasks, persist the user's system prompt in SharedPreferences
+  // and drive the editor UI from there. Other callers (e.g. AgentChat) manage prompt state
+  // themselves and pass it in explicitly, so we defer to them.
+  val usePrefsBackedSystemPrompt =
+    taskId == BuiltInTaskId.LLM_CHAT ||
+      taskId == BuiltInTaskId.LLM_ASK_IMAGE ||
+      taskId == BuiltInTaskId.LLM_ASK_AUDIO
+  var prefsSystemPrompt by remember {
+    mutableStateOf(
+      if (usePrefsBackedSystemPrompt) LlmChatPrefs.getSystemPrompt(context, taskId) else ""
+    )
+  }
+  val effectiveAllowEditing = allowEditingSystemPrompt || usePrefsBackedSystemPrompt
+  val effectiveCurSystemPrompt =
+    if (usePrefsBackedSystemPrompt) prefsSystemPrompt else curSystemPrompt
+  val effectiveOnSystemPromptChanged: (String) -> Unit =
+    if (usePrefsBackedSystemPrompt) {
+      { newPrompt ->
+        LlmChatPrefs.setSystemPrompt(context, taskId, newPrompt)
+        prefsSystemPrompt = newPrompt
+        val selectedModel = modelManagerUiState.selectedModel
+        viewModel.resetSession(
+          task = task,
+          model = selectedModel,
+          systemInstruction = if (newPrompt.isNotEmpty()) Contents.of(newPrompt) else null,
+          supportImage = showImagePicker,
+          supportAudio = showAudioPicker,
+        )
+      }
+    } else onSystemPromptChanged
 
   ChatView(
     task = task,
@@ -303,9 +341,9 @@ fun ChatViewWrapper(
     composableBelowMessageList = composableBelowMessageList,
     showImagePicker = showImagePicker,
     emptyStateComposable = emptyStateComposable,
-    allowEditingSystemPrompt = allowEditingSystemPrompt,
-    curSystemPrompt = curSystemPrompt,
-    onSystemPromptChanged = onSystemPromptChanged,
+    allowEditingSystemPrompt = effectiveAllowEditing,
+    curSystemPrompt = effectiveCurSystemPrompt,
+    onSystemPromptChanged = effectiveOnSystemPromptChanged,
     sendMessageTrigger = sendMessageTrigger,
     showAudioPicker = showAudioPicker,
     conversationIdToLoad = conversationIdToLoad,
