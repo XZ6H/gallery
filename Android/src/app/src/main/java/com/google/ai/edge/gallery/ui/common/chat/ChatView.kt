@@ -74,7 +74,6 @@ import com.google.ai.edge.gallery.ui.common.ModelPageAppBar
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 
 private const val TAG = "AGChatView"
@@ -133,36 +132,32 @@ fun ChatView(
 
   // Persist the current conversation to Room. Shared between the onDispose save and
   // the save-before-load path when the user picks a different conversation from history.
+  // Uses historyViewModel.viewModelScope so this is safe to call from onDispose — the
+  // composable scope (rememberCoroutineScope) is being cancelled at that point, so
+  // scope.launch would silently no-op even with NonCancellable.
   val saveCurrentToDb: () -> Unit = {
-    viewModel.saveCurrentConversation(
-      model = selectedModel,
-      taskId = task.id,
-      saveCallback = { id, taskIdArg, modelNameArg, title, messages ->
-        if (historyViewModel != null) {
+    if (historyViewModel != null) {
+      viewModel.saveCurrentConversation(
+        model = selectedModel,
+        taskId = task.id,
+        saveCallback = { id, taskIdArg, modelNameArg, title, messages ->
           val now = System.currentTimeMillis()
-          scope.launch(Dispatchers.Default + NonCancellable) {
-            val existing = historyViewModel.getConversation(id)
-            val createdAt = existing?.createdAt ?: now
-            val conversation =
-              com.google.ai.edge.gallery.data.history.ConversationEntity(
-                id = id,
-                taskId = taskIdArg,
-                modelName = modelNameArg,
-                title = title,
-                lastMessageTimestamp = now,
-                createdAt = createdAt,
-              )
-            historyViewModel.saveConversation(conversation)
-            val messageEntities = messages.mapIndexed { index, msg ->
-              ChatHistoryConverter.fromMessage(msg, conversationId = id, order = index)
-            }.filterNotNull()
-            if (messageEntities.isNotEmpty()) {
-              historyViewModel.saveMessages(messageEntities)
-            }
-          }
-        }
-      },
-    )
+          val conversation =
+            com.google.ai.edge.gallery.data.history.ConversationEntity(
+              id = id,
+              taskId = taskIdArg,
+              modelName = modelNameArg,
+              title = title,
+              lastMessageTimestamp = now,
+              createdAt = now,
+            )
+          val messageEntities = messages.mapIndexed { index, msg ->
+            ChatHistoryConverter.fromMessage(msg, conversationId = id, order = index)
+          }.filterNotNull()
+          historyViewModel.saveConversationWithMessages(conversation, messageEntities)
+        },
+      )
+    }
   }
 
   val handleNavigateUp = {
@@ -202,8 +197,7 @@ fun ChatView(
     }
   }
 
-  // Save conversation when navigating away. NonCancellable inside the helper keeps the
-  // Room writes alive after the composable scope is cancelled.
+  // Save conversation when navigating away.
   DisposableEffect(Unit) { onDispose { saveCurrentToDb() } }
 
   // Handle system's edge swipe.

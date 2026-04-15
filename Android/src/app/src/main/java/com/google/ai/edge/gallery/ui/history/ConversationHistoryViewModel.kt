@@ -25,6 +25,7 @@ import com.google.ai.edge.gallery.data.history.ConversationWithMessages
 import com.google.ai.edge.gallery.data.history.MessageEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
@@ -71,5 +72,28 @@ class ConversationHistoryViewModel @Inject constructor(
   /** Get an existing conversation entity (for preserving createdAt on re-save). */
   suspend fun getConversation(conversationId: String): ConversationEntity? {
     return repository.getConversation(conversationId)
+  }
+
+  /**
+   * Non-suspend variant that saves a full conversation (entity + messages) on viewModelScope.
+   * Safe to call from onDispose, where the composable scope is being cancelled and
+   * scope.launch would silently no-op even with NonCancellable.
+   */
+  fun saveConversationWithMessages(
+    conversation: ConversationEntity,
+    messages: List<MessageEntity>,
+  ) {
+    viewModelScope.launch(Dispatchers.IO) {
+      // Preserve createdAt if this conversation was already saved.
+      val existing = repository.getConversation(conversation.id)
+      val toSave = if (existing != null) conversation.copy(createdAt = existing.createdAt)
+                   else conversation
+      // Replace all messages for this conversation so re-saves don't accumulate duplicates.
+      repository.deleteMessagesForConversation(conversation.id)
+      repository.saveConversation(toSave)
+      if (messages.isNotEmpty()) {
+        repository.saveMessages(messages)
+      }
+    }
   }
 }
