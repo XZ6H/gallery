@@ -68,6 +68,7 @@ import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.ui.history.ConversationHistoryDialog
 import com.google.ai.edge.gallery.ui.history.ConversationHistoryViewModel
 import com.google.ai.edge.gallery.ui.common.ModelPageAppBar
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
@@ -128,6 +129,41 @@ fun ChatView(
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   var navigatingUp by remember { mutableStateOf(false) }
+  var showHistoryDialog by remember { mutableStateOf(false) }
+
+  // Persist the current conversation to Room. Shared between the onDispose save and
+  // the save-before-load path when the user picks a different conversation from history.
+  val saveCurrentToDb: () -> Unit = {
+    viewModel.saveCurrentConversation(
+      model = selectedModel,
+      taskId = task.id,
+      saveCallback = { id, taskIdArg, modelNameArg, title, messages ->
+        if (historyViewModel != null) {
+          val now = System.currentTimeMillis()
+          scope.launch(Dispatchers.Default + NonCancellable) {
+            val existing = historyViewModel.getConversation(id)
+            val createdAt = existing?.createdAt ?: now
+            val conversation =
+              com.google.ai.edge.gallery.data.history.ConversationEntity(
+                id = id,
+                taskId = taskIdArg,
+                modelName = modelNameArg,
+                title = title,
+                lastMessageTimestamp = now,
+                createdAt = createdAt,
+              )
+            historyViewModel.saveConversation(conversation)
+            val messageEntities = messages.mapIndexed { index, msg ->
+              ChatHistoryConverter.fromMessage(msg, conversationId = id, order = index)
+            }.filterNotNull()
+            if (messageEntities.isNotEmpty()) {
+              historyViewModel.saveMessages(messageEntities)
+            }
+          }
+        }
+      },
+    )
+  }
 
   val handleNavigateUp = {
     navigatingUp = true
@@ -166,44 +202,9 @@ fun ChatView(
     }
   }
 
-  // Save conversation when navigating away.
-  DisposableEffect(Unit) {
-    onDispose {
-      viewModel.saveCurrentConversation(
-        model = selectedModel,
-        taskId = task.id,
-        saveCallback = { id, taskIdArg, modelNameArg, title, messages ->
-          if (historyViewModel != null) {
-            val now = System.currentTimeMillis()
-            // NonCancellable: this is triggered from onDispose, so `scope` (the composable
-            // scope) is being cancelled at the same time. Without NonCancellable the Room
-            // writes would be cancelled before they run, leaving the history panel empty.
-            scope.launch(Dispatchers.Default + NonCancellable) {
-              // Check if this conversation already exists to preserve createdAt
-              val existing = historyViewModel.getConversation(id)
-              val createdAt = existing?.createdAt ?: now
-              val conversation =
-                com.google.ai.edge.gallery.data.history.ConversationEntity(
-                  id = id,
-                  taskId = taskIdArg,
-                  modelName = modelNameArg,
-                  title = title,
-                  lastMessageTimestamp = now,
-                  createdAt = createdAt,
-                )
-              historyViewModel.saveConversation(conversation)
-              val messageEntities = messages.mapIndexed { index, msg ->
-                ChatHistoryConverter.fromMessage(msg, conversationId = id, order = index)
-              }.filterNotNull()
-              if (messageEntities.isNotEmpty()) {
-                historyViewModel.saveMessages(messageEntities)
-              }
-            }
-          }
-        },
-      )
-    }
-  }
+  // Save conversation when navigating away. NonCancellable inside the helper keeps the
+  // Room writes alive after the composable scope is cancelled.
+  DisposableEffect(Unit) { onDispose { saveCurrentToDb() } }
 
   // Handle system's edge swipe.
   BackHandler {
@@ -254,7 +255,10 @@ fun ChatView(
         allowEditingSystemPrompt = allowEditingSystemPrompt,
         curSystemPrompt = curSystemPrompt,
         onSystemPromptChanged = onSystemPromptChanged,
-        onHistoryClicked = onNavigateToHistory,
+        onHistoryClicked =
+          if (historyViewModel != null) {
+            { showHistoryDialog = true }
+          } else onNavigateToHistory,
       )
     },
   ) { innerPadding ->
@@ -359,5 +363,23 @@ fun ChatView(
         }
       }
     }
+  }
+
+  if (showHistoryDialog && historyViewModel != null) {
+    ConversationHistoryDialog(
+      taskId = task.id,
+      viewModel = historyViewModel,
+      onDismissed = { showHistoryDialog = false },
+      onConversationClicked = { conversation ->
+        // Save whatever is in the current session before swapping it out.
+        saveCurrentToDb()
+        scope.launch {
+          val loaded = historyViewModel.loadConversation(conversation.id)
+          if (loaded != null) {
+            viewModel.loadMessagesFromHistory(selectedModel, loaded)
+          }
+        }
+      },
+    )
   }
 }
