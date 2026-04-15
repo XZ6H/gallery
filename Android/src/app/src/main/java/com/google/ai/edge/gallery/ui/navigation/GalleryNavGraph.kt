@@ -301,12 +301,16 @@ fun GalleryNavHost(
 
     // Model page.
     composable(
-      route = "$ROUTE_MODEL/{taskId}/{modelName}",
+      route = "$ROUTE_MODEL/{taskId}/{modelName}?conversationId={conversationId}",
       arguments =
         listOf(
           navArgument("taskId") { type = NavType.StringType },
           navArgument("modelName") { type = NavType.StringType },
-          navArgument("conversationId") { type = NavType.StringType; nullable = true },
+          navArgument("conversationId") {
+            type = NavType.StringType
+            nullable = true
+            defaultValue = null
+          },
         ),
       enterTransition = { slideEnter() },
       exitTransition = { slideExit() },
